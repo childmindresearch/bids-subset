@@ -67,7 +67,6 @@ fn symlink(src: &Path, dst: &Path) -> std::io::Result<()> {
 
 #[cfg(target_os = "windows")]
 fn symlink(_: &Path, _: &Path) -> std::io::Result<()> {
-    //raise error
     Err(std::io::Error::new(
         std::io::ErrorKind::Other,
         "symlink not supported on windows",
@@ -100,8 +99,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut file_counter: usize = 0;
 
-    for entry in walker {
-        let entry = entry?;
+    for entry in walker
+        .filter_map(|f| f.ok())
+        .filter(|e| !e.file_type().is_dir())
+    {
         let path = entry
             .path()
             .strip_prefix((&args.path).clone().to_str().unwrap())
