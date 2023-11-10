@@ -6,7 +6,8 @@ Fast and easy BIDS dataset subsetting.
 
 - Cross platform (Unix symlinks by default, windows copies)
 - Easy (Glob pattern matching for subjects, sessions, datatypes and files)
-- Fast
+- Portable (Single executable)
+- Fast (🦀)
 
 ## Usage
 
@@ -30,7 +31,7 @@ Options:
 
 ## Examples
 
-Extract session "01" from a dataset:
+Extract subject "01" from a dataset:
 
 ```bash
 bids-subset path/to/bids -s 01
