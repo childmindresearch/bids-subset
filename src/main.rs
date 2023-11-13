@@ -76,6 +76,8 @@ fn symlink(_: &Path, _: &Path) -> std::io::Result<()> {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
+    let copy_mode = args.copy || cfg!(target_os = "windows");
+
     let glob_subject = args.subject.as_deref().unwrap_or("*");
     let glob_session = args.session.as_deref().unwrap_or("*");
     let glob_datatype = args.datatype.as_deref().unwrap_or("*");
@@ -98,42 +100,47 @@ fn main() -> Result<(), Box<dyn Error>> {
     let walker = WalkDir::new(&args.path).max_depth(5).into_iter();
 
     let mut file_counter: usize = 0;
+    let mut copy_counter: usize = 0;
 
     for entry in walker
         .filter_map(|f| f.ok())
         .filter(|e| !e.file_type().is_dir())
     {
+        file_counter += 1;
         let path = entry
             .path()
-            .strip_prefix((&args.path).clone().to_str().unwrap())
+            .strip_prefix(&args.path)
             .unwrap();
-        if set.is_match(path) {
-            match args.output.as_ref() {
-                Some(output) => {
-                    let output = output.join(path);
-                    if !output.exists() {
-                        std::fs::create_dir_all(output.parent().unwrap())?;
-                        if args.copy || cfg!(target_os = "windows") {
-                            std::fs::copy(entry.path(), &output)?;
-                        } else {
-                            symlink(entry.path(), &output)?;
-                        }
-                        file_counter += 1;
+        if !set.is_match(path) {
+            continue;
+        }
+        match args.output.as_ref() {
+            Some(output) => {
+                let output = output.join(path);
+                if !output.exists() {
+                    std::fs::create_dir_all(output.parent().unwrap())?;
+                    if copy_mode {
+                        std::fs::copy(entry.path(), &output)?;
                     } else {
-                        println!("WARNING: \'{}\' already exists", output.display());
+                        symlink(entry.path(), &output)?;
                     }
+                    copy_counter += 1;
+                } else {
+                    println!("WARNING: \'{}\' already exists", output.display());
                 }
-                None => {
-                    println!("{}", path.display());
-                    file_counter += 1;
-                }
+            }
+            None => {
+                println!("{}", path.display());
+                copy_counter += 1;
             }
         }
     }
 
+    let verb = if copy_mode { "copied" } else { "linked" };
+
     match args.output.as_ref() {
-        Some(output) => println!("{} files copied to {}", file_counter, output.display()),
-        None => println!("{} files found", file_counter),
+        Some(output) => println!("{} files {} to {}", copy_counter, verb, output.display()),
+        None => println!("{} files matched ({} inspected)", copy_counter, file_counter)
     }
 
     Ok(())
