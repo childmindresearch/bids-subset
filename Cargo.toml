@@ -7,6 +7,6 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.4.7", features = ["derive"] }
-globset = "0.4.13"
+globwalk = "0.8.1"
 lazy_static = "1.4.0"
 walkdir = "2.4.0"

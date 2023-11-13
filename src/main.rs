@@ -1,12 +1,10 @@
 #[macro_use]
 extern crate lazy_static;
 
-use std::{error::Error, path::PathBuf};
-
 use clap::{command, Parser};
-use globset::{Glob, GlobSetBuilder};
-use std::path::Path;
-use walkdir::WalkDir;
+use globwalk::GlobWalkerBuilder;
+use std::error::Error;
+use std::path::{Path, PathBuf};
 
 /// BIDS datasets subsetter
 #[derive(Parser, Debug)]
@@ -43,6 +41,10 @@ struct Args {
     /// Enable copy mode (default on linux is symlink)
     #[clap(short, long)]
     copy: bool,
+
+    /// Case insensitive glob matching
+    #[clap(short = 'i', long)]
+    case_insensitive: bool,
 }
 
 lazy_static! {
@@ -83,37 +85,28 @@ fn main() -> Result<(), Box<dyn Error>> {
     let glob_datatype = args.datatype.as_deref().unwrap_or("*");
     let glob_file = args.file.as_deref().unwrap_or("*");
 
-    let mut builder = GlobSetBuilder::new();
-    builder.add(Glob::new(&format!(
-        "sub-{glob_subject}/{glob_datatype}/{glob_file}"
-    ))?);
-    builder.add(Glob::new(&format!(
-        "sub-{glob_subject}/ses-{glob_session}/{glob_datatype}/{glob_file}"
-    ))?);
-    if !args.exclude_top_level {
-        for f in TOP_LEVEL_FILES.iter() {
-            builder.add(Glob::new(f)?);
-        }
-    }
-    let set = builder.build()?;
+    let walker = GlobWalkerBuilder::from_patterns(
+        &args.path,
+        &[
+            &format!("sub-{glob_subject}/{glob_datatype}/{glob_file}"),
+            &format!("sub-{glob_subject}/ses-{glob_session}/{glob_datatype}/{glob_file}"),
+        ],
+    )
+    .case_insensitive(args.case_insensitive)
+    .max_depth(5)
+    .build()?;
 
-    let walker = WalkDir::new(&args.path).max_depth(5).into_iter();
-
-    let mut file_counter: usize = 0;
     let mut copy_counter: usize = 0;
 
+    let start_time = std::time::SystemTime::now();
+
     for entry in walker
-        .filter_map(|f| f.ok())
+        .into_iter()
+        .filter_map(Result::ok)
         .filter(|e| !e.file_type().is_dir())
     {
-        file_counter += 1;
-        let path = entry
-            .path()
-            .strip_prefix(&args.path)
-            .unwrap();
-        if !set.is_match(path) {
-            continue;
-        }
+        copy_counter += 1;
+        let path = entry.path().strip_prefix(&args.path).unwrap();
         match args.output.as_ref() {
             Some(output) => {
                 let output = output.join(path);
@@ -124,23 +117,29 @@ fn main() -> Result<(), Box<dyn Error>> {
                     } else {
                         symlink(entry.path(), &output)?;
                     }
-                    copy_counter += 1;
                 } else {
                     println!("WARNING: \'{}\' already exists", output.display());
                 }
             }
             None => {
                 println!("{}", path.display());
-                copy_counter += 1;
             }
         }
     }
 
+    let duration = start_time.elapsed().unwrap();
+
     let verb = if copy_mode { "copied" } else { "linked" };
 
     match args.output.as_ref() {
-        Some(output) => println!("{} files {} to {}", copy_counter, verb, output.display()),
-        None => println!("{} files matched ({} inspected)", copy_counter, file_counter)
+        Some(output) => println!(
+            "{} files {} to '{}' in {:?}.",
+            copy_counter,
+            verb,
+            output.display(),
+            duration
+        ),
+        None => println!("{} files matched in {:?}.", copy_counter, duration),
     }
 
     Ok(())
